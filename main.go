@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"strings"
 	"errors"
+	"unicode"
 )
 
 // The *kind* of token
@@ -21,6 +22,8 @@ const (
 	Add
 	Subtract
 )
+
+type Tokens []Token
 
 // Represents a token
 type Token struct {
@@ -87,14 +90,15 @@ func main() {
 
 
 // Lex input string into tokens
-func lex(line string) ([]Token, error) {
-	fmt.Println(line)
+func lex(line string) (Tokens, error) {
 	reader := strings.NewReader(line)
 	
 	parenCount := 0
 	tokens := make([]Token, 0, maxTokens)
 	num := 0
 	inNum := false
+	isNeg := false
+	lastRune := 'β'
 	
 	push := func(t Type, dat interface{}) {
 			tokens = append(tokens, Token{ t, dat })
@@ -111,19 +115,31 @@ func lex(line string) ([]Token, error) {
 		}
 		
 		// If we leave number space, push what we had
-		if inNum && r < '9' && r > '0' {
+		if inNum && !unicode.IsDigit(r) {
+			if isNeg {
+				num *= -1
+			}
+		
 			push(Number, num)
 			inNum = false
+			isNeg = false
+			num = 0
 		}
 		
 		switch {
-		case r >= '0' && r <= '9':
+		case unicode.IsDigit(r):
 			num *= 10
 			num += int(r-'0')
 			inNum = true
 		
 		case r == '-':
-			push(Subtract, r)
+			if lastRune == '(' {
+				// Only support (-1) to make a negative
+				// ex. 1 + (-1) ≡ 0
+				isNeg = true
+			} else {
+				push(Subtract, r)
+			}
 		
 		case r == '+':
 			push(Add, r)
@@ -142,14 +158,25 @@ func lex(line string) ([]Token, error) {
 			parenCount--
 			push(CloseParen, parenCount)
 		
+		case unicode.IsSpace(r):
+			// Ignore whitespace
+			continue loop
+		
 		default:
 			return nil, errors.New(fmt.Sprintf("unknown token in input → %c", r))
 		}
+		
+		lastRune = r
 	}
 	
 	// Catch a trailing number
 	if inNum {
 		push(Number, num)
+	}
+	
+	// The only thing allowed to be trailing is a Number or )
+	if t := tokens[len(tokens)-1].Type; t != Number && t != CloseParen {
+		return nil, errors.New(fmt.Sprintf("invalid trailing type #%d; valid is a Number or ')'", t))
 	}
 	
 	// Maybe remove and let tokenizer give better results?
